@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تطبيق قراءة أسفار الشريعة</title>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .login-btn { background-color: #db4437; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.3s; }
+        .login-btn:hover { background-color: #c53929; }
+        
+        .book-container { background-color: white; border-radius: 10px; padding: 20px; margin-bottom: 35px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); border-top: 6px solid #2980b9; }
+        .book-title { font-size: 1.8em; color: #2c3e50; margin-top: 0; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px;}
+        .book-summary { background-color: #e8f4f8; padding: 15px; border-radius: 5px; color: #1a5276; font-style: italic; margin-bottom: 20px; line-height: 1.6; }
+        
+        .chapter-row { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #eee; transition: 0.2s; }
+        .chapter-row:hover { background-color: #f9f9f9; border-right: 4px solid #3498db; }
+        .chapter-info { flex-grow: 1; }
+        .chapter-title { font-weight: bold; color: #34495e; margin-bottom: 5px; font-size: 1.1em;}
+        .chapter-name { font-size: 0.9em; color: #7f8c8d; }
+        
+        .checkbox-container { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; background: #ecf0f1; padding: 8px 12px; border-radius: 5px;}
+        input[type="checkbox"] { width: 22px; height: 22px; cursor: pointer; accent-color: #27ae60; }
+        
+        .questions-block { background-color: #fffaf0; padding: 20px; margin: 20px 0; border-right: 5px solid #f39c12; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .final-block { background-color: #eafaf1; border-right: 5px solid #27ae60; }
+        .questions-block h3 { margin-top: 0; color: #d35400; font-size: 1.3em; }
+        .final-block h3 { color: #1e8449; }
+        
+        .q-item { margin-bottom: 20px; }
+        .q-text { font-weight: bold; color: #2c3e50; margin-bottom: 10px; font-size: 1.1em; line-height: 1.5; }
+        .q-item textarea { width: 100%; height: 80px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-family: inherit; font-size: 1em; resize: vertical; box-sizing: border-box; margin-bottom: 10px; }
+        .q-item textarea:focus { border-color: #3498db; outline: none; box-shadow: 0 0 5px rgba(52,152,219,0.3); }
+        
+        .btn-save-ans { background-color: #f39c12; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-save-ans:hover { background-color: #d68910; }
+        
+        .user-info { display: none; background-color: #d4edda; color: #155724; padding: 12px; border-radius: 5px; margin-bottom: 20px; text-align: center; font-weight: bold; border: 1px solid #c3e6cb; font-size: 1.1em;}
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>خطة قراءة أسفار الشريعة والتأملات</h1>
+        <button id="loginBtn" class="login-btn" onclick="signInWithGoogle()">تسجيل الدخول بـ Gmail للحفظ</button>
+        <div id="userInfo" class="user-info"></div>
+    </div>
+
+    <div id="app-content"></div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyCfHK3m-k9-re0jKbbBLjlb1cg9XXic4GQ",
+            authDomain: "bible-reading-plan-40d79.firebaseapp.com",
+            projectId: "bible-reading-plan-40d79",
+            storageBucket: "bible-reading-plan-40d79.firebasestorage.app",
+            messagingSenderId: "951272548212",
+            appId: "1:951272548212:web:5a908c4d29c5a79d252e21"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        const lawBooks = [
+            {
+                id: "genesis",
+                name: "سفر التكوين",
+                summary: "سفر البدايات. يروي قصة خلق الكون، وسقوط الإنسان في الخطية، ثم الطوفان. ويبدأ قصة الخلاص باختيار الله لإبراهيم وإسحاق ويعقوب، وينتهي بقصة يوسف وتغربه في أرض مصر.",
+                questions: {
+                    10: ["ما أهم الدروس التي نتعلمها من قصة الخليقة وسقوط الإنسان؟", "ماذا يعلمنا طوفان نوح ونجاة فلكه عن عدل الله ورحمته؟"],
+                    20: ["كيف ظهرت طاعة إبراهيم لنداء الله في هذه الإصحاحات؟", "ما هو الدرس المستفاد من شفاعة إبراهيم في سدوم وهلاكها؟"],
+                    30: ["كيف تدخل الله في حياة يعقوب رغم أخطائه وحيلته؟", "ما الفرق الذي تلاحظه بين بركة إسحاق ليعقوب وعيسو؟"],
+                    40: ["ما هي الصفات التي ساعدت يوسف على الأمانة والنجاح في بيت فوطيفار وفي السجن؟"],
+                    50: ["كيف حوّل الله شر إخوة يوسف إلى خير عظيم لإنقاذ حياة كثيرين؟", "ما أهمية بركة يعقوب لأسباط إسرائيل قبل موته؟"],
+                    "final": ["ما هو الانطباع العام وأهم درس روحي تعلمته من سفر التكوين بأكمله؟", "من هي أكثر شخصية أثرت فيك في هذا السفر ولماذا؟"]
+                },
+                chapters: [
+                    { id: "gen1", name: "تكوين 1", title: "الخليقة (أيام الخلق الستة)" },
+                    { id: "gen2", name: "تكوين 2", title: "اليوم السابع، خلقة آدم وحواء، وجنة عدن" },
+                    { id: "gen3", name: "تكوين 3", title: "سقوط الإنسان وحواء والوعد بالخلاص" },
+                    { id: "gen4", name: "تكوين 4", title: "قايين وهابيل" },
+                    { id: "gen5", name: "تكوين 5", title: "مواليد آدم إلى نوح" },
+                    { id: "gen6", name: "تكوين 6", title: "شر البشرية والأمر ببناء الفلك" },
+                    { id: "gen7", name: "تكوين 7", title: "الطوفان العظيم" },
+                    { id: "gen8", name: "تكوين 8", title: "انحسار الطوفان ومذبح نوح" },
+                    { id: "gen9", name: "تكوين 9", title: "عهد الله مع نوح وقوس قزح" },
+                    { id: "gen10", name: "تكوين 10", title: "مواليد وأنساب بني نوح" },
+                    { id: "gen11", name: "تكوين 11", title: "برج بابل ونسل سام إلى أبرام" },
+                    { id: "gen12", name: "تكوين 12", title: "دعوة أبرام ورحلته لمصر" },
+                    { id: "gen13", name: "تكوين 13", title: "افتراق أبرام ولوط" },
+                    { id: "gen14", name: "تكوين 14", title: "انتصار أبرام ولقاء ملكي صادق" },
+                    { id: "gen15", name: "تكوين 15", title: "عهد الله مع أبرام وتبريره بالإيمان" },
+                    { id: "gen16", name: "تكوين 16", title: "هاجر وإسماعيل" },
+                    { id: "gen17", name: "تكوين 17", title: "عهد الختان وتغيير اسم إبراهيم وسارة" },
+                    { id: "gen18", name: "تكوين 18", title: "ضيافة إبراهيم للرب والشفاعة في سدوم" },
+                    { id: "gen19", name: "تكوين 19", title: "هلاك سدوم وعمورة ونجاة لوط" },
+                    { id: "gen20", name: "تكوين 20", title: "إبراهيم وأبيمالك في جرار" },
+                    { id: "gen21", name: "تكوين 21", title: "ولادة إسحاق وطرد هاجر" },
+                    { id: "gen22", name: "تكوين 22", title: "امتحان إبراهيم وتقديم إسحاق ذبيحة" },
+                    { id: "gen23", name: "تكوين 23", title: "وفاة سارة وشراء مغارة المكفيلة" },
+                    { id: "gen24", name: "تكوين 24", title: "زواج إسحاق من رفقة" },
+                    { id: "gen25", name: "تكوين 25", title: "وفاة إبراهيم، وميلاد عيسو ويعقوب وبيع البكورية" },
+                    { id: "gen26", name: "تكوين 26", title: "إسحاق في جرار وتجديد العهد" },
+                    { id: "gen27", name: "تكوين 27", title: "يعقوب يسرق البركة من أبيه" },
+                    { id: "gen28", name: "تكوين 28", title: "سلم يعقوب في بيت إيل" },
+                    { id: "gen29", name: "تكوين 29", title: "يعقوب في حاران وزواجه من ليئة وراحيل" },
+                    { id: "gen30", name: "تكوين 30", title: "أولاد يعقوب وازدياد غناه" },
+                    { id: "gen31", name: "تكوين 31", title: "هروب يعقوب من لابان" },
+                    { id: "gen32", name: "تكوين 32", title: "مصارعة يعقوب مع الله في فنوئيل" },
+                    { id: "gen33", name: "تكوين 33", title: "لقاء يعقوب وعيسو والمصالحة" },
+                    { id: "gen34", name: "تكوين 34", title: "دينة وأهل شكيم وانتقام شمعون ولاوي" },
+                    { id: "gen35", name: "تكوين 35", title: "العودة إلى بيت إيل ووفاة راحيل وإسحاق" },
+                    { id: "gen36", name: "تكوين 36", title: "مواليد ونسل عيسو (أدوم)" },
+                    { id: "gen37", name: "تكوين 37", title: "أحلام يوسف وبيعه كعبد" },
+                    { id: "gen38", name: "تكوين 38", title: "يهوذا وثامار" },
+                    { id: "gen39", name: "تكوين 39", title: "يوسف في بيت فوطيفار وأمانته" },
+                    { id: "gen40", name: "تكوين 40", title: "يوسف في السجن وتفسير حلمي الساقي والخباز" },
+                    { id: "gen41", name: "تكوين 41", title: "أحلام فرعون وارتفاع يوسف حاكماً لمصر" },
+                    { id: "gen42", name: "تكوين 42", title: "رحلة إخوة يوسف الأولى إلى مصر" },
+                    { id: "gen43", name: "تكوين 43", title: "الرحلة الثانية مع بنيامين" },
+                    { id: "gen44", name: "تكوين 44", title: "الكأس في عدل بنيامين وشفاعة يهوذا" },
+                    { id: "gen45", name: "تكوين 45", title: "يوسف يعلن عن نفسه لإخوته" },
+                    { id: "gen46", name: "تكوين 46", title: "نزول يعقوب وعائلته إلى مصر" },
+                    { id: "gen47", name: "تكوين 47", title: "يعقوب يبارك فرعون والإقامة في جوشان" },
+                    { id: "gen48", name: "تكوين 48", title: "يعقوب يبارك أفرايم ومنسى" },
+                    { id: "gen49", name: "تكوين 49", title: "بركات يعقوب الوداعية لأولاده الاثني عشر" },
+                    { id: "gen50", name: "تكوين 50", title: "دفن يعقوب ووفاة يوسف" }
+                ]
+            },
+            {
+                id: "exodus",
+                name: "سفر الخروج",
+                summary: "سفر الفداء. يحكي قصة إنقاذ الله لشعبه من عبودية مصر بضربات عظيمة وعبور البحر، ثم استلام الوصايا العشر وبناء خيمة الاجتماع لسكني الله في وسطهم.",
+                questions: {
+                    10: ["ما الذي تظهره لنا الضربات التي ضرب بها الله مصر عن قوته وسلطانه؟", "كيف كان إيمان موسى يتطور في هذه الإصحاحات الأولى؟"],
+                    20: ["ماذا تمثل وصية الفصح وعبور البحر الأحمر في حياتنا المسيحية اليوم؟", "اذكر وصيتين من الوصايا العشر تعتبرهما الأكثر تأثيراً في المجتمع."],
+                    30: ["ما هي الدلالة الروحية لخيمة الاجتماع ووجود الله في وسط شعبه؟", "ماذا يعلمنا تكريس الكهنة وملابسهم عن القداسة؟"],
+                    40: ["ما هو الدرس الذي نأخذه من سقوط الشعب في عبادة العجل الذهبي؟", "كيف ظهر مجد الرب في نهاية السفر بعد إكمال الخيمة؟"],
+                    "final": ["ما هو أهم درس روحي تعلمته من رحلة الخروج من أرض مصر؟", "كيف ترى شخصية السيد المسيح أو رموز الخلاص في هذا السفر؟"]
+                },
+                chapters: [
+                    { id: "exo1", name: "خروج 1", title: "استعباد وتعذيب بني إسرائيل في مصر" },
+                    { id: "exo2", name: "خروج 2", title: "ميلاد موسى ونشأته، وهروبه إلى مديان" },
+                    { id: "exo3", name: "خروج 3", title: "ظهور الرب في العليقة المتقدة" },
+                    { id: "exo4", name: "خروج 4", title: "معجزات موسى وعودته مع هارون" },
+                    { id: "exo5", name: "خروج 5", title: "موسى وهارون يقفان أمام فرعون" },
+                    { id: "exo6", name: "خروج 6", title: "تجديد وعد الله بالخلاص والإنقاذ" },
+                    { id: "exo7", name: "خروج 7", title: "عصا هارون تصير حية، وضربة الدم" },
+                    { id: "exo8", name: "خروج 8", title: "ضربات الضفادع، البعوض، والذبان" },
+                    { id: "exo9", name: "خروج 9", title: "موت المواشي، الدمامل، وضربة البرد" },
+                    { id: "exo10", name: "خروج 10", title: "ضربة الجراد، وضربة الظلام" },
+                    { id: "exo11", name: "خروج 11", title: "الإنذار الأخير بضربة الأبكار" },
+                    { id: "exo12", name: "خروج 12", title: "تأسيس الفصح، وموت الأبكار، والخروج" },
+                    { id: "exo13", name: "خروج 13", title: "تقديس الأبكار للرب، وعمود السحاب والنار" },
+                    { id: "exo14", name: "خروج 14", title: "انشقاق البحر وعبور البحر الأحمر" },
+                    { id: "exo15", name: "خروج 15", title: "تسبحة موسى، وماء مارة المر" },
+                    { id: "exo16", name: "خروج 16", title: "تذمر الشعب وإعطاء المن والسلوى" },
+                    { id: "exo17", name: "خروج 17", title: "الماء من الصخرة، وحرب عماليق" },
+                    { id: "exo18", name: "خروج 18", title: "نصيحة يثرون لموسى وتنظيم القضاء" },
+                    { id: "exo19", name: "خروج 19", title: "الوصول إلى جبل سيناء والاستعداد للعهد" },
+                    { id: "exo20", name: "خروج 20", title: "الوصايا العشر والمذبح" },
+                    { id: "exo21", name: "خروج 21", title: "أحكام وشرائع العبيد والإصابات" },
+                    { id: "exo22", name: "خروج 22", title: "أحكام السرقات والتعويضات والأخلاق" },
+                    { id: "exo23", name: "خروج 23", title: "شرائع العدل وسنة الإبراء والأعياد" },
+                    { id: "exo24", name: "خروج 24", title: "تثبيت العهد مع الشعب على الجبل" },
+                    { id: "exo25", name: "خروج 25", title: "تقدمات المسكن، وتابوت عهد الرب والمائدة" },
+                    { id: "exo26", name: "خروج 26", title: "شقق وتفاصيل خيمة الاجتماع (المسكن)" },
+                    { id: "exo27", name: "خروج 27", title: "مذبح المحرقة النحاسي، ودار الخيمة" },
+                    { id: "exo28", name: "خروج 28", title: "ثياب الكهنوت المقدسة" },
+                    { id: "exo29", name: "خروج 29", title: "طقوس تكريس الكهنة" },
+                    { id: "exo30", name: "خروج 30", title: "مذبح البخور، وفضة الكفارة، والمرحضة" },
+                    { id: "exo31", name: "خروج 31", title: "بصلئيل وأهوليآب، وحفظ السبت" },
+                    { id: "exo32", name: "خروج 32", title: "خطية العجل الذهبي وكسر اللوحين" },
+                    { id: "exo33", name: "خروج 33", title: "خيمة الشهادة وموسى يطلب رؤية مجد الله" },
+                    { id: "exo34", name: "خروج 34", title: "لوحا الشريعة الثانيان وتجديد العهد" },
+                    { id: "exo35", name: "خروج 35", title: "جمع تبرعات الشعب لبناء المسكن" },
+                    { id: "exo36", name: "خروج 36", title: "بناء وصنع شقق خيمة الاجتماع" },
+                    { id: "exo37", name: "خروج 37", title: "صنع التابوت والمائدة والمنارة" },
+                    { id: "exo38", name: "خروج 38", title: "صنع مذبح المحرقة والمرحضة ودار الخيمة" },
+                    { id: "exo39", name: "خروج 39", title: "صنع ثياب الكهنة وإكمال العمل" },
+                    { id: "exo40", name: "خروج 40", title: "نصب المسكن، ومجد الرب يملأه" }
+                ]
+            },
+            {
+                id: "leviticus",
+                name: "سفر اللاويين",
+                summary: "سفر القداسة. يركز على شرائع الذبائح والأعياد، ويوضح كيف يمكن للإنسان الخاطئ أن يقترب من الله القدوس وتكفير الخطايا.",
+                questions: {
+                    10: ["ما هي أنواع الذبائح المذكورة، وكيف ترمز كل منها لعمل المسيح؟", "ما الدرس القاسي من حادثة ناداب وأبيهو (تقديم نار غريبة)؟"],
+                    20: ["ما هي أهمية 'يوم الكفارة العظيم' في العهد القديم؟", "لماذا اهتم الله بكل هذه التفاصيل الخاصة بالطهارة الجسدية والروحية؟"],
+                    27: ["اذكر عيداً من أعياد الرب السنوية المذكورة وما هو هدفه؟", "ما هو مبدأ 'سنة اليوبيل' وماذا يعلمنا عن الرحمة والحرية؟"],
+                    "final": ["ماذا تعني لك الآية المحورية في السفر: 'كونوا قديسين لأني أنا قدوس'؟", "كيف ساعدك هذا السفر على فهم أهمية ذبيحة الصليب؟"]
+                },
+                chapters: [
+                    { id: "lev1", name: "لاويين 1", title: "شريعة ذبيحة المحرقة" },
+                    { id: "lev2", name: "لاويين 2", title: "شريعة تقدمة الدقيق" },
+                    { id: "lev3", name: "لاويين 3", title: "شريعة ذبيحة السلامة" },
+                    { id: "lev4", name: "لاويين 4", title: "شريعة ذبيحة الخطية" },
+                    { id: "lev5", name: "لاويين 5", title: "شريعة ذبيحة الإثم" },
+                    { id: "lev6", name: "لاويين 6", title: "شرائع إضافية وتعليمات للكهنة" },
+                    { id: "lev7", name: "لاويين 7", title: "تفاصيل الذبائح ونصيب الكهنة منها" },
+                    { id: "lev8", name: "لاويين 8", title: "طقوس تكريس هارون وبنيه" },
+                    { id: "lev9", name: "لاويين 9", title: "بدء خدمة هارون الكهنوتية" },
+                    { id: "lev10", name: "لاويين 10", title: "نار غريبة وموت ناداب وأبيهو" },
+                    { id: "lev11", name: "لاويين 11", title: "الحيوانات الطاهرة والنجسة" },
+                    { id: "lev12", name: "لاويين 12", title: "شريعة تطهير المرأة الوالدة" },
+                    { id: "lev13", name: "لاويين 13", title: "شريعة تشخيص مرض البرص" },
+                    { id: "lev14", name: "لاويين 14", title: "طقوس تطهير الأبرص والبيوت" },
+                    { id: "lev15", name: "لاويين 15", title: "شرائع السيل والنجاسات الجسدية" },
+                    { id: "lev16", name: "لاويين 16", title: "يوم الكفارة العظيم (التيس والعزازيل)" },
+                    { id: "lev17", name: "لاويين 17", title: "قدسية الدم والمذبح الواحد" },
+                    { id: "lev18", name: "لاويين 18", title: "تحريم العلاقات الجسدية غير المشروعة" },
+                    { id: "lev19", name: "لاويين 19", title: "شرائع القداسة (كونوا قديسين)" },
+                    { id: "lev20", name: "لاويين 20", title: "عقوبات الخطايا البشعة" },
+                    { id: "lev21", name: "لاويين 21", title: "قداسة الكهنة وشروطهم" },
+                    { id: "lev22", name: "لاويين 22", title: "قداسة التقدمات والقرابين المقبولة" },
+                    { id: "lev23", name: "لاويين 23", title: "مواسم وأعياد الرب المقدسة" },
+                    { id: "lev24", name: "لاويين 24", title: "زيت المنارة، خبز الوجوه، وعقاب المجدف" },
+                    { id: "lev25", name: "لاويين 25", title: "سنة السبت (العطلة)، وسنة اليوبيل" },
+                    { id: "lev26", name: "لاويين 26", title: "بركات الطاعة ولعنات العصيان" },
+                    { id: "lev27", name: "لاويين 27", title: "شريعة النذور والعشور" }
+                ]
+            },
+            {
+                id: "numbers",
+                name: "سفر العدد",
+                summary: "سفر رحلة التيه. يعرض إحصاء الشعب وتنظيمهم، ورحلتهم في البرية لمدة ٤٠ سنة نتيجة تذمرهم، ويعلمنا أهمية الطاعة والإيمان.",
+                questions: {
+                    10: ["ما الذي تلاحظه في دقة تنظيم الله لمحلة الأسباط واللاويين؟", "لماذا كان إرشاد عمود السحاب والنار مهماً في رحلة الشعب؟"],
+                    20: ["ما هو سبب تذمر الشعب المتكرر، وكيف تعامل الله معه؟", "ما هو الخطأ الذي وقع فيه موسى وهارون وحرمهم من دخول الأرض؟"],
+                    30: ["ما هو الرمز الروحي العظيم في قصة 'الحية النحاسية'؟", "ماذا نتعلم من قصة بالاق وبلعام بن بعور؟"],
+                    36: ["كيف حافظ الله على وعوده رغم تذمر الجيل الأول وموتهم في البرية؟", "ما هي الحكمة من تخصيص 'مدن الملجأ'؟"],
+                    "final": ["ما هو أخطر عدو واجه شعب إسرائيل في هذا السفر (هل هو الشعوب الأخرى أم تذمرهم الداخلي)؟ ولماذا؟", "ما هو أهم درس تطبيقي لحياتك اليومية من رحلة التيه في البرية؟"]
+                },
+                chapters: [
+                    { id: "num1", name: "عدد 1", title: "الإحصاء الأول لأسباط إسرائيل" },
+                    { id: "num2", name: "عدد 2", title: "ترتيب المحلة وخيام الأسباط" },
+                    { id: "num3", name: "عدد 3", title: "إحصاء اللاويين ومهماتهم" },
+                    { id: "num4", name: "عدد 4", title: "خدمة عشائر اللاويين لتابوت العهد والخيمة" },
+                    { id: "num5", name: "عدد 5", title: "تطهير المحلة وشريعة الغيرة" },
+                    { id: "num6", name: "عدد 6", title: "شريعة النذير والبركة الكهنوتية" },
+                    { id: "num7", name: "عدد 7", title: "قرابين وتقدمات رؤساء الأسباط" },
+                    { id: "num8", name: "عدد 8", title: "إضاءة المنارة وتطهير اللاويين" },
+                    { id: "num9", name: "عدد 9", title: "فصح الشهر الثاني وسحابة الرب" },
+                    { id: "num10", name: "عدد 10", title: "البوقان الفضيان وبدء الارتحال من سيناء" },
+                    { id: "num11", name: "عدد 11", title: "تذمر الشعب، نار تابعيرا، وإعطاء السلوى" },
+                    { id: "num12", name: "عدد 12", title: "تذمر مريم وهارون، وبرص مريم" },
+                    { id: "num13", name: "عدد 13", title: "إرسال الجواسيس الاثني عشر لاستكشاف الأرض" },
+                    { id: "num14", name: "عدد 14", title: "تمرد الشعب وعقاب التيه ٤٠ سنة" },
+                    { id: "num15", name: "عدد 15", title: "شرائع التقدمات وعقاب كاسر السبت" },
+                    { id: "num16", name: "عدد 16", title: "تمرد قورح وداثان وأبيرام وهلاكهم" },
+                    { id: "num17", name: "عدد 17", title: "عصا هارون التي أفرخت وأزهرت" },
+                    { id: "num18", name: "عدد 18", title: "واجبات ونصيب الكهنة واللاويين" },
+                    { id: "num19", name: "عدد 19", title: "شريعة البقرة الحمراء وماء التطهير" },
+                    { id: "num20", name: "عدد 20", title: "ماء مريبة، خطية موسى، وموت هارون" },
+                    { id: "num21", name: "عدد 21", title: "الحية النحاسية والانتصار على سيحون وعوج" },
+                    { id: "num22", name: "عدد 22", title: "بالاق ملك موآب يستدعي بلعام" },
+                    { id: "num23", name: "عدد 23", title: "أقوال ونبوات بلعام الأولى والثانية" },
+                    { id: "num24", name: "عدد 24", title: "نبوات بلعام الثالثة والرابعة" },
+                    { id: "num25", name: "عدد 25", title: "خطية بعل فغور وغيرة فينحاس" },
+                    { id: "num26", name: "عدد 26", title: "الإحصاء الثاني للشعب (الجيل الجديد)" },
+                    { id: "num27", name: "عدد 27", title: "بنات صلفحاد واختيار يشوع خليفة لموسى" },
+                    { id: "num28", name: "عدد 28", title: "التقدمات اليومية وتقدمات الأعياد" },
+                    { id: "num29", name: "عدد 29", title: "تقدمات أعياد الشهر السابع" },
+                    { id: "num30", name: "عدد 30", title: "شريعة النذور" },
+                    { id: "num31", name: "عدد 31", title: "الحرب والانتقام من المديانيين" },
+                    { id: "num32", name: "عدد 32", title: "ميراث سبطي رأوبين وجاد شرق الأردن" },
+                    { id: "num33", name: "عدد 33", title: "مراجعة لمحطات رحلة بني إسرائيل في البرية" },
+                    { id: "num34", name: "عدد 34", title: "حدود أرض كنعان (أرض الموعد)" },
+                    { id: "num35", name: "عدد 35", title: "مدن اللاويين وتخصيص مدن الملجأ" },
+                    { id: "num36", name: "عدد 36", title: "زواج بنات صلفحاد وحفظ ميراث الأسباط" }
+                ]
+            },
+            {
+                id: "deuteronomy",
+                name: "سفر التثنية",
+                summary: "سفر تكرار الشريعة. عبارة عن عظات وداعية من موسى للجيل الجديد قبل دخولهم أرض الموعد، يحثهم فيها على محبة الرب وطاعته من كل القلب.",
+                questions: {
+                    10: ["كيف استخدم موسى التاريخ لتشجيع الجيل الجديد في خطاباته الأولى؟", "ما الذي يؤكده موسى حول أهمية تعليم الوصايا للأبناء؟"],
+                    20: ["لماذا حذر موسى الشعب بشدة من التشبه بالشعوب الوثنية المحيطة؟", "اذكر شريعة من شرائع العدل والرحمة لفتت انتباهك في هذه الإصحاحات."],
+                    30: ["ما هو الخيار الواضح الذي وضعه موسى أمام الشعب (البركة واللعنة)؟", "ماذا يعني 'تجديد العهد' ولماذا كان ضرورياً قبل دخول الأرض؟"],
+                    34: ["ما هي المشاعر التي تراودك وأنت تقرأ 'نشيد موسى' ووداعه للشعب؟", "ما هو تقييم السفر النهائي لشخصية موسى النبي العظيم؟"],
+                    "final": ["ما هو أهم مبدأ يركز عليه سفر التثنية في علاقتنا بالله؟", "كيف جهز سفر التثنية الشعب لامتلاك أرض الموعد والانتصار؟"]
+                },
+                chapters: [
+                    { id: "deut1", name: "تثنية 1", title: "موسى يبدأ خطابه بمراجعة رحلة التيه" },
+                    { id: "deut2", name: "تثنية 2", title: "المرور بأدوم وموآب والانتصار على سيحون" },
+                    { id: "deut3", name: "تثنية 3", title: "الانتصار على عوج، ورفض دخول موسى للأرض" },
+                    { id: "deut4", name: "تثنية 4", title: "دعوة حارة للطاعة والتحذير من الأصنام" },
+                    { id: "deut5", name: "تثنية 5", title: "تكرار الوصايا العشر للجيل الجديد" },
+                    { id: "deut6", name: "تثنية 6", title: "الوصية العظمى (اسمع يا إسرائيل)" },
+                    { id: "deut7", name: "تثنية 7", title: "الأمر بإبادة الأمم الوثنية وعدم الاختلاط بهم" },
+                    { id: "deut8", name: "تثنية 8", title: "تذكر ما فعله الله والتحذير من نسيانه في الرخاء" },
+                    { id: "deut9", name: "تثنية 9", title: "تذكير الشعب بتمرد عجل الذهب وعنادهم" },
+                    { id: "deut10", name: "تثنية 10", title: "لوحا الشريعة الثانيان، وما يطلبه الرب" },
+                    { id: "deut11", name: "تثنية 11", title: "البركة واللعنة توضعان أمام الشعب" },
+                    { id: "deut12", name: "تثنية 12", title: "المكان الواحد المختار للعبادة والذبائح" },
+                    { id: "deut13", name: "تثنية 13", title: "التحذير الشديد من الأنبياء الكذبة" },
+                    { id: "deut14", name: "تثنية 14", title: "الأطعمة الطاهرة والنجسة، وتقديم الأعشار" },
+                    { id: "deut15", name: "تثنية 15", title: "سنة الإبراء للديون، وعتق العبيد العبرانيين" },
+                    { id: "deut16", name: "تثنية 16", title: "الأعياد السنوية الثلاثة، وتعيين القضاة" },
+                    { id: "deut17", name: "تثنية 17", title: "العبادة المرفوضة، وشريعة الملك المقبل" },
+                    { id: "deut18", name: "تثنية 18", title: "نصيب الكهنة، والوعد بالنبي الآتي" },
+                    { id: "deut19", name: "تثنية 19", title: "مدن الملجأ، وقوانين الشهود في المحاكم" },
+                    { id: "deut20", name: "تثنية 20", title: "شرائع وقوانين الحرب" },
+                    { id: "deut21", name: "تثنية 21", title: "شريعة القتيل المجهول، وشرائع عائلية متنوعة" },
+                    { id: "deut22", name: "تثنية 22", title: "رد الضالة للمجهول، وشرائع العفة" },
+                    { id: "deut23", name: "تثنية 23", title: "المستبعدون من الجماعة، وشرائع الطهارة" },
+                    { id: "deut24", name: "تثنية 24", title: "شرائع الطلاق، وحقوق الفقراء والعمال" },
+                    { id: "deut25", name: "تثنية 25", title: "شرائع العدل، وزواج السلف، والموازين" },
+                    { id: "deut26", name: "تثنية 26", title: "تقديم الباكورات والأعشار إقراراً بالبركة" },
+                    { id: "deut27", name: "تثنية 27", title: "المذبح على جبل عيبال وإعلان اللعنات" },
+                    { id: "deut28", name: "تثنية 28", title: "بركات الطاعة ولعنات العصيان بالتفصيل" },
+                    { id: "deut29", name: "تثنية 29", title: "تجديد عهد الرب مع الشعب في أرض موآب" },
+                    { id: "deut30", name: "تثنية 30", title: "دعوة للتوبة: اختر الحياة لتحيا أنت ونسلك" },
+                    { id: "deut31", name: "تثنية 31", title: "تسليم القيادة ليشوع، وكتابة الشريعة" },
+                    { id: "deut32", name: "تثنية 32", title: "نشيد موسى النبوي العظيم" },
+                    { id: "deut33", name: "تثنية 33", title: "البركة الختامية من موسى لأسباط إسرائيل" },
+                    { id: "deut34", name: "تثنية 34", title: "صعود موسى لجبل نبو، ووفاته، ودفنه" }
+                ]
+            }
+        ];
+
+        const container = document.getElementById('app-content');
+
+        lawBooks.forEach(book => {
+            let bookHTML = `
+                <div class="book-container">
+                    <h2 class="book-title">${book.name}</h2>
+                    <div class="book-summary">${book.summary}</div>
+            `;
+
+            book.chapters.forEach((chapter, index) => {
+                let chNum = index + 1;
+                
+                bookHTML += `
+                    <div class="chapter-row">
+                        <div class="chapter-info">
+                            <div class="chapter-title">${chapter.title}</div>
+                            <div class="chapter-name">${chapter.name}</div>
+                        </div>
+                        <div class="actions">
+                            <label class="checkbox-container">
+                                <input type="checkbox" id="${chapter.id}" onchange="saveProgress('${chapter.id}')">
+                                <span>تم القراءة</span>
+                            </label>
+                        </div>
+                    </div>
+                `;
+
+                if (book.questions[chNum]) {
+                    bookHTML += `
+                        <div class="questions-block">
+                            <h3>أسئلة تأملية (إصحاح 1 إلى ${chNum})</h3>
+                    `;
+                    book.questions[chNum].forEach((q, qIndex) => {
+                        let qId = `${book.id}_q_${chNum}_${qIndex}`;
+                        bookHTML += `
+                            <div class="q-item">
+                                <div class="q-text">${q}</div>
+                                <textarea id="${qId}" placeholder="اكتب تأملك وإجابتك هنا..."></textarea>
+                                <button id="btn_${qId}" class="btn-save-ans" onclick="saveAnswer('${qId}')">حفظ الإجابة</button>
+                            </div>
+                        `;
+                    });
+                    bookHTML += `</div>`;
+                }
+            });
+
+            if (book.questions["final"]) {
+                bookHTML += `
+                    <div class="questions-block final-block">
+                        <h3>أسئلة ومراجعة ختامية لسفر ${book.name}</h3>
+                `;
+                book.questions["final"].forEach((q, qIndex) => {
+                    let qId = `${book.id}_q_final_${qIndex}`;
+                    bookHTML += `
+                        <div class="q-item">
+                            <div class="q-text">${q}</div>
+                            <textarea id="${qId}" placeholder="اكتب تأملك وإجابتك هنا..."></textarea>
+                            <button id="btn_${qId}" class="btn-save-ans" onclick="saveAnswer('${qId}')">حفظ الإجابة النهائية</button>
+                        </div>
+                    `;
+                });
+                bookHTML += `</div>`;
+            }
+
+            bookHTML += `</div>`;
+            container.innerHTML += bookHTML;
+        });
+
+        function signInWithGoogle() {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider).catch((error) => {
+                console.error("خطأ في تسجيل الدخول: ", error);
+                alert("تأكد من تفعيل Google Auth في Firebase.");
+            });
+        }
+
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                document.getElementById('loginBtn').style.display = 'none';
+                const userInfo = document.getElementById('userInfo');
+                userInfo.style.display = 'block';
+                userInfo.innerText = `أهلاً بك يا ${user.displayName} - يمكنك الآن حفظ إجاباتك!`;
+                
+                loadUserProgress(user.uid);
+            } else {
+                document.getElementById('loginBtn').style.display = 'inline-block';
+                document.getElementById('userInfo').style.display = 'none';
+            }
+        });
+
+        function saveProgress(chapterId) {
+            const user = auth.currentUser;
+            if (user) {
+                const isChecked = document.getElementById(chapterId).checked;
+                db.collection('userProgress').doc(user.uid).set({
+                    [chapterId]: isChecked
+                }, { merge: true }).catch(error => console.error(error));
+            } else {
+                alert('عفواً، يجب تسجيل الدخول بحساب Gmail أولاً لحفظ تقدمك!');
+                document.getElementById(chapterId).checked = false;
+            }
+        }
+
+        function saveAnswer(qId) {
+            const user = auth.currentUser;
+            const btn = document.getElementById(`btn_${qId}`);
+            
+            if (!user) {
+                alert('يجب تسجيل الدخول أولاً لحفظ إجاباتك!');
+                return;
+            }
+
+            const answerText = document.getElementById(qId).value;
+            
+            btn.innerText = "جاري الحفظ...";
+            btn.style.opacity = "0.7";
+
+            db.collection('userAnswers').doc(user.uid).set({
+                [qId]: answerText
+            }, { merge: true }).then(() => {
+                btn.innerText = "تم الحفظ ✓";
+                btn.style.backgroundColor = "#27ae60";
+                btn.style.opacity = "1";
+                
+                setTimeout(() => {
+                    btn.innerText = "حفظ الإجابة";
+                    btn.style.backgroundColor = "#f39c12";
+                }, 2000);
+            }).catch((error) => {
+                console.error("خطأ في الحفظ: ", error);
+                btn.innerText = "فشل الحفظ ❌";
+                btn.style.backgroundColor = "#c0392b";
+            });
+        }
+
+        function loadUserProgress(uid) {
+            db.collection('userProgress').doc(uid).get().then((doc) => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    for (const chapterId in data) {
+                        const checkbox = document.getElementById(chapterId);
+                        if (checkbox) checkbox.checked = data[chapterId];
+                    }
+                }
+            });
+
+            db.collection('userAnswers').doc(uid).get().then((doc) => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    for (const qId in data) {
+                        const textarea = document.getElementById(qId);
+                        if (textarea) textarea.value = data[qId];
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
